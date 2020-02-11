@@ -1,4 +1,3 @@
-require 'base64'
 require 'json'
 require 'net/http'
 
@@ -9,12 +8,17 @@ module TDAnalytics
     # 默认缓冲区大小
     MAX_LENGTH = 20
 
-    def initialize(server_url, app_id, max_buffer_length=MAX_LENGTH)
+    def initialize(server_url, app_id, max_buffer_length = MAX_LENGTH)
       @server_uri = URI.parse(server_url)
-      @server_uri.path = '/logagent'
+      @server_uri.path = '/sync_server'
       @app_id = app_id
+      @compress = true
       @max_length = [max_buffer_length, MAX_LENGTH].min
       @buffers = []
+    end
+
+    def _set_compress(compress)
+      @compress = compress
     end
 
     def add(message)
@@ -29,13 +33,17 @@ module TDAnalytics
     def flush
       begin
         @buffers.each_slice(@max_length) do |chunk|
-          wio = StringIO.new("w")
-          gzip_io = Zlib::GzipWriter.new(wio)
-          gzip_io.write(chunk.to_json)
-          gzip_io.close
-          data = Base64.encode64(wio.string).gsub("\n", '')
-
-          headers = {'Content-Type' => 'application/plaintext', 'appid' => @app_id}
+          if @compress
+            wio = StringIO.new("w")
+            gzip_io = Zlib::GzipWriter.new(wio)
+            gzip_io.write(chunk.to_json)
+            gzip_io.close
+            data = wio.string
+          else
+            data = chunk.to_json
+          end
+          compress_type = @compress ? 'gzip' : 'none'
+          headers = {'Content-Type' => 'application/plaintext', 'appid' => @app_id, 'compress' => compress_type}
           request = CaseSensitivePost.new(@server_uri.request_uri, headers)
           request.body = data
 
@@ -44,7 +52,7 @@ module TDAnalytics
           rescue => e
             raise ConnectionError.new("Could not connect to TA server, with error \"#{e.message}\".")
           end
-    
+
           result = {}
           if response_code.to_i == 200
             begin
@@ -53,7 +61,7 @@ module TDAnalytics
               raise ServerError.new("Could not interpret TA server response: '#{response_body}'")
             end
           end
-    
+
           if result['code'] != 0
             raise ServerError.new("Could not write to TA, server responded with #{response_code} returning: '#{response_body}'")
           end
@@ -84,11 +92,11 @@ module TDAnalytics
       @header = {}
       headers.each{|k,v| @header[k.to_s] = [v] }
     end
-  
+
     def [](name)
       @header[name.to_s]
     end
-  
+
     def []=(name, val)
       if val
         @header[name.to_s] = [val]
@@ -96,7 +104,7 @@ module TDAnalytics
         @header.delete(name.to_s)
       end
     end
-  
+
     def capitalize(name)
       name
     end

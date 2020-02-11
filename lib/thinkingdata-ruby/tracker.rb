@@ -31,7 +31,7 @@ module TDAnalytics
     # ErrorHandler 的定义可以参考 thinkingdata-ruby/errors.rb
     #
     # uuid 如果为 true，每条数据都会被带上随机 UUID 作为 #uuid 属性的值上报，该值不会入库，仅仅用于后台做数据重复检测
-    def initialize(consumer, error_handler=nil, uuid: false)
+    def initialize(consumer, error_handler = nil, uuid: false)
       @error_handler = error_handler || ErrorHandler.new
       @consumer = consumer
       @super_properties = {}
@@ -67,7 +67,7 @@ module TDAnalytics
     #   time: （可选）Time 事件发生时间，如果不传默认为系统当前时间
     #   ip: (可选) 事件 IP，如果传入 IP 地址，后端可以通过 IP 地址解析事件发生地点
     #   skip_local_check: (可选) boolean 表示是否跳过本地检测
-    def track(event_name:nil, distinct_id:nil, account_id:nil, properties:{}, time:nil, ip:nil, skip_local_check: false)
+    def track(event_name: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil, skip_local_check: false)
       begin
         _check_name event_name
         _check_id(distinct_id, account_id)
@@ -94,7 +94,7 @@ module TDAnalytics
     #   distinct_id: (可选) 访客 ID
     #   account_id: （可选) 账号ID distinct_id 和 account_id 不能同时为空
     #   properties: （可选) Hash 用户属性。支持四种类型的值：字符串、数值、Time、boolean
-    def user_set(distinct_id:nil, account_id:nil, properties:{}, ip:nil)
+    def user_set(distinct_id: nil, account_id: nil, properties: {}, ip: nil)
       begin
         _check_id(distinct_id, account_id)
         _check_properties(:user_set, properties)
@@ -104,15 +104,15 @@ module TDAnalytics
       end
 
       _internal_track(:user_set,
-        distinct_id: distinct_id,
-        account_id: account_id,
-        properties: properties,
-        ip: ip,
+                      distinct_id: distinct_id,
+                      account_id: account_id,
+                      properties: properties,
+                      ip: ip,
       )
     end
 
     # 设置用户属性. 如果有重名属性，则丢弃, 参数与 user_set 相同
-    def user_set_once(distinct_id:nil, account_id:nil, properties:{}, ip:nil)
+    def user_set_once(distinct_id: nil, account_id: nil, properties: {}, ip: nil)
       begin
         _check_id(distinct_id, account_id)
         _check_properties(:user_setOnce, properties)
@@ -122,15 +122,32 @@ module TDAnalytics
       end
 
       _internal_track(:user_setOnce,
-        distinct_id: distinct_id,
-        account_id: account_id,
-        properties: properties,
-        ip: ip,
+                      distinct_id: distinct_id,
+                      account_id: account_id,
+                      properties: properties,
+                      ip: ip,
       )
     end
 
+    # 追加用户的一个或多个列表类型的属性
+    def user_append(distinct_id: nil, account_id: nil, properties: {})
+      begin
+        _check_id(distinct_id, account_id)
+        _check_properties(:user_append, properties)
+      rescue TDAnalyticsError => e
+        @error_handler.handle(e)
+        return false
+      end
+
+      _internal_track(:user_append,
+                      distinct_id: distinct_id,
+                      account_id: account_id,
+                      properties: properties,
+                      )
+    end
+
     # 删除用户属性, property 可以传入需要删除的用户属性的 key 值，或者 key 值数组
-    def user_unset(distinct_id:nil, account_id:nil, property:nil)
+    def user_unset(distinct_id: nil, account_id: nil, property: nil)
       properties = {}
       if property.is_a?(Array)
         property.each do |k|
@@ -149,9 +166,9 @@ module TDAnalytics
       end
 
       _internal_track(:user_unset,
-        distinct_id: distinct_id,
-        account_id: account_id,
-        properties: properties,
+                      distinct_id: distinct_id,
+                      account_id: account_id,
+                      properties: properties,
       )
     end
 
@@ -159,7 +176,7 @@ module TDAnalytics
     #   distinct_id: (可选) 访客 ID
     #   account_id: （可选) 账号ID distinct_id 和 account_id 不能同时为空
     #   properties: （可选) Hash 数值类型的用户属性
-    def user_add(distinct_id:nil, account_id:nil, properties:{})
+    def user_add(distinct_id: nil, account_id: nil, properties: {})
       begin
         _check_id(distinct_id, account_id)
         _check_properties(:user_add, properties)
@@ -169,14 +186,14 @@ module TDAnalytics
       end
 
       _internal_track(:user_add,
-        distinct_id: distinct_id,
-        account_id: account_id,
-        properties: properties,
+                      distinct_id: distinct_id,
+                      account_id: account_id,
+                      properties: properties,
       )
     end
 
     # 删除用户，用户之前的事件数据不会被删除
-    def user_del(distinct_id:nil, account_id:nil)
+    def user_del(distinct_id: nil, account_id: nil)
       begin
         _check_id(distinct_id, account_id)
       rescue TDAnalyticsError => e
@@ -185,8 +202,8 @@ module TDAnalytics
       end
 
       _internal_track(:user_del,
-        distinct_id: distinct_id,
-        account_id: account_id,
+                      distinct_id: distinct_id,
+                      account_id: account_id,
       )
     end
 
@@ -219,7 +236,7 @@ module TDAnalytics
     private
 
     # 出现异常的时候返回 false, 否则 true
-    def _internal_track(type, properties:{}, event_name:nil, account_id:nil, distinct_id:nil, ip:nil, time:Time.now)
+    def _internal_track(type, properties: {}, event_name: nil, account_id: nil, distinct_id: nil, ip: nil, time: Time.now)
       if account_id == nil && distinct_id == nil
         raise IllegalParameterError.new('account id or distinct id must be provided.')
       end
@@ -231,22 +248,22 @@ module TDAnalytics
 
       # 格式化 Time 类型
       properties.each do |k, v|
-       if v.is_a?(Time)
-         properties[k] = _format_time(v)
-       end
+        if v.is_a?(Time)
+          properties[k] = _format_time(v)
+        end
       end
 
       data = {
-        '#type' => type,
-        '#time' => _format_time(time),
-        'properties' => properties,
+          '#type' => type,
+          '#time' => _format_time(time),
+          'properties' => properties,
       }
 
       data['#event_name'] = event_name if type == :track
       data['#account_id'] = account_id if account_id
       data['#distinct_id'] = distinct_id if distinct_id
       data['#ip'] = ip if ip
-      data['#uuid'] =  SecureRandom.uuid if @uuid
+      data['#uuid'] = SecureRandom.uuid if @uuid
 
       ret = true
       begin
@@ -286,12 +303,19 @@ module TDAnalytics
 
       properties.each do |k, v|
         _check_name k
-        unless v.is_a?(Integer) || v.is_a?(Float) || v.is_a?(Symbol) || v.is_a?(String) || v.is_a?(Time) || !!v == v
-          raise IllegalParameterError.new("The value of properties must be type in Integer, Float, Symbol, String, and Time")
+        unless v.is_a?(Integer) || v.is_a?(Float) || v.is_a?(Symbol) || v.is_a?(String) || v.is_a?(Time) || !!v == v || v.is_a?(Array)
+          raise IllegalParameterError.new("The value of properties must be type in Integer, Float, Symbol, String, Array,and Time")
         end
 
         if type == :user_add
           raise IllegalParameterError.new("Property value for user add must be numbers") unless v.is_a?(Integer) || v.is_a?(Float)
+        end
+        if v.is_a?(Array)
+          v.each_index do |i|
+            if v[i].is_a?(Time)
+              v[i] = _format_time(v[i])
+            end
+          end
         end
       end
       true
@@ -302,11 +326,11 @@ module TDAnalytics
       raise IllegalParameterError.new("account id or distinct id must be provided.") if distinct_id.nil? && account_id.nil?
 
       unless distinct_id.nil?
-        raise IllegalParameterError.new("The length of distinct id should in (0, 64]")  if distinct_id.to_s.length < 1 || distinct_id.to_s.length > 64
+        raise IllegalParameterError.new("The length of distinct id should in (0, 64]") if distinct_id.to_s.length < 1 || distinct_id.to_s.length > 64
       end
 
       unless account_id.nil?
-        raise IllegalParameterError.new("The length of account id should in (0, 64]")  if account_id.to_s.length < 1 || account_id.to_s.length > 64
+        raise IllegalParameterError.new("The length of account id should in (0, 64]") if account_id.to_s.length < 1 || account_id.to_s.length > 64
       end
     end
   end

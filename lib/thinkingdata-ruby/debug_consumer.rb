@@ -6,15 +6,16 @@ module TDAnalytics
   # DebugConsumer 会返回详细的报错信息，建议在集成阶段先使用 DebugConsumer 调试接口
   class DebugConsumer
 
-    def initialize(server_url, app_id)
+    def initialize(server_url, app_id, write_data = true)
       @server_uri = URI.parse(server_url)
-      @server_uri.path = '/sync_data'
+      @server_uri.path = '/data_debug'
       @app_id = app_id
+      @write_data = write_data
     end
 
     def add(message)
       puts message.to_json
-      form_data = {"data" => message.to_json, "appid" => @app_id, "debug" => 1}
+      form_data = {"data" => message.to_json, "appid" => @app_id, "dryRun" => @write_data ? "0" : "1", "source" => "server"}
       begin
         response_code, response_body = request(@server_uri, form_data)
       rescue => e
@@ -30,9 +31,7 @@ module TDAnalytics
         end
       end
 
-      puts result
-
-      if result['code'] != 0
+      if result['errorLevel'] != 0
         raise ServerError.new("Could not write to TA, server responded with #{response_code} returning: '#{response_body}'")
       end
     end
