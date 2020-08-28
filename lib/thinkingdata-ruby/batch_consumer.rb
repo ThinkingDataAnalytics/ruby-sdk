@@ -6,9 +6,10 @@ module TDAnalytics
   # 有数据时，首先会加入本地缓冲区，当条数到达上限后会发起上报
   class BatchConsumer
     # 默认缓冲区大小
-    MAX_LENGTH = 20
+    DEFAULT_LENGTH = 20
+    MAX_LENGTH = 2000
 
-    def initialize(server_url, app_id, max_buffer_length = MAX_LENGTH)
+    def initialize(server_url, app_id, max_buffer_length = DEFAULT_LENGTH)
       @server_uri = URI.parse(server_url)
       @server_uri.path = '/sync_server'
       @app_id = app_id
@@ -43,7 +44,13 @@ module TDAnalytics
             data = chunk.to_json
           end
           compress_type = @compress ? 'gzip' : 'none'
-          headers = {'Content-Type' => 'application/plaintext', 'appid' => @app_id, 'compress' => compress_type}
+          headers = {'Content-Type' => 'application/plaintext',
+                     'appid' => @app_id,
+                     'compress' => compress_type,
+                     'TA-Integration-Type'=>'Ruby',
+                     'TA-Integration-Version'=>TDAnalytics::VERSION,
+                     'TA-Integration-Count'=>@buffers.count,
+                     'TA_Integration-Extra'=>'batch'}
           request = CaseSensitivePost.new(@server_uri.request_uri, headers)
           request.body = data
 

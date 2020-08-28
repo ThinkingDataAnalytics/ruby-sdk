@@ -67,7 +67,7 @@ module TDAnalytics
     #   time: （可选）Time 事件发生时间，如果不传默认为系统当前时间
     #   ip: (可选) 事件 IP，如果传入 IP 地址，后端可以通过 IP 地址解析事件发生地点
     #   skip_local_check: (可选) boolean 表示是否跳过本地检测
-    def track(event_name: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil, skip_local_check: false)
+    def track(event_name: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil,first_check_id:nil, skip_local_check: false)
       begin
         _check_name event_name
         _check_id(distinct_id, account_id)
@@ -85,9 +85,78 @@ module TDAnalytics
       data[:account_id] = account_id if account_id
       data[:time] = time if time
       data[:ip] = ip if ip
+      data[:first_check_id] = first_check_id if first_check_id
       data[:properties] = properties
 
       _internal_track(:track, data)
+    end
+
+    #   上报事件数据可进行更新. 每个事件都包含一个事件名和事件ID以及 Hash 对象的时间属性. 其参数说明如下:
+    #   event_name: (必须) 事件名 必须是英文字母开头，可以包含字母、数字和 _, 长度不超过 50 个字符.
+    #   event_id:(必须) event_name + event_id 会作为一条事件的唯一键
+    #   distinct_id: (可选) 访客 ID
+    #   account_id: （可选) 账号ID distinct_id 和 account_id 不能同时为空
+    #   properties: （可选) Hash 事件属性。支持四种类型的值：字符串、数值、Time、boolean
+    #   time: （可选）Time 事件发生时间，如果不传默认为系统当前时间
+    #   ip: (可选) 事件 IP，如果传入 IP 地址，后端可以通过 IP 地址解析事件发生地点
+    #   skip_local_check: (可选) boolean 表示是否跳过本地检测
+    def track_overwrite(event_name: nil,event_id: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil, skip_local_check: false)
+      begin
+        _check_name event_name
+        _check_event_id event_id
+        _check_id(distinct_id, account_id)
+        unless skip_local_check
+          _check_properties(:track_overwrite, properties)
+        end
+      rescue TDAnalyticsError => e
+        @error_handler.handle(e)
+        return false
+      end
+
+      data = {}
+      data[:event_name] = event_name
+      data[:event_id] = event_id
+      data[:distinct_id] = distinct_id if distinct_id
+      data[:account_id] = account_id if account_id
+      data[:time] = time if time
+      data[:ip] = ip if ip
+      data[:properties] = properties
+      _internal_track(:track_overwrite, data)
+    end
+
+
+
+    #   上报事件数据可进行覆盖. 每个事件都包含一个事件名和事件ID以及 Hash 对象的时间属性. 其参数说明如下:
+    #   event_name: (必须) 事件名 必须是英文字母开头，可以包含字母、数字和 _, 长度不超过 50 个字符.
+    #   event_id:(必须) event_name + event_id 会作为一条事件的唯一键
+    #   distinct_id: (可选) 访客 ID
+    #   account_id: （可选) 账号ID distinct_id 和 account_id 不能同时为空
+    #   properties: （可选) Hash 事件属性。支持四种类型的值：字符串、数值、Time、boolean
+    #   time: （可选）Time 事件发生时间，如果不传默认为系统当前时间
+    #   ip: (可选) 事件 IP，如果传入 IP 地址，后端可以通过 IP 地址解析事件发生地点
+    #   skip_local_check: (可选) boolean 表示是否跳过本地检测
+    def track_update(event_name: nil,event_id: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil, skip_local_check: false)
+      begin
+        _check_name event_name
+        _check_event_id event_id
+        _check_id(distinct_id, account_id)
+        unless skip_local_check
+          _check_properties(:track_update, properties)
+        end
+      rescue TDAnalyticsError => e
+        @error_handler.handle(e)
+        return false
+      end
+
+      data = {}
+      data[:event_name] = event_name
+      data[:event_id] = event_id
+      data[:distinct_id] = distinct_id if distinct_id
+      data[:account_id] = account_id if account_id
+      data[:time] = time if time
+      data[:ip] = ip if ip
+      data[:properties] = properties
+      _internal_track(:track_update, data)
     end
 
     # 设置用户属性. 如果出现同名属性，则会覆盖之前的值.
@@ -236,13 +305,13 @@ module TDAnalytics
     private
 
     # 出现异常的时候返回 false, 否则 true
-    def _internal_track(type, properties: {}, event_name: nil, account_id: nil, distinct_id: nil, ip: nil, time: Time.now)
+    def _internal_track(type, properties: {}, event_name: nil, event_id:nil, account_id: nil, distinct_id: nil, ip: nil,first_check_id: nil, time: Time.now)
       if account_id == nil && distinct_id == nil
         raise IllegalParameterError.new('account id or distinct id must be provided.')
       end
 
-      if type == :track
-        raise IllegalParameterError.new('event name is empty for track') if event_name == nil
+      if type == :track || type == :track_update || type == :track_overwrite
+        raise IllegalParameterError.new('event name is empty') if event_name == nil
         properties = {'#zone_offset': time.utc_offset / 3600.0}.merge(LIB_PROPERTIES).merge(@super_properties).merge(properties)
       end
 
@@ -259,10 +328,12 @@ module TDAnalytics
           'properties' => properties,
       }
 
-      data['#event_name'] = event_name if type == :track
+      data['#event_name'] = event_name if (type == :track || type == :track_update || :track_overwrite)
+      data['#event_id'] = event_id if (type == :track_update || type == :track_overwrite)
       data['#account_id'] = account_id if account_id
       data['#distinct_id'] = distinct_id if distinct_id
       data['#ip'] = ip if ip
+      data['#first_check_id'] = first_check_id if first_check_id
       data['#uuid'] = SecureRandom.uuid if @uuid
 
       ret = true
@@ -281,16 +352,17 @@ module TDAnalytics
       time.strftime("%Y-%m-%d %H:%M:%S.#{((time.to_f * 1000.0).to_i % 1000).to_s.rjust(3, "0")}")
     end
 
+    def _check_event_id(event_id)
+      raise IllegalParameterError.new("the event_id or property cannot be nil") if event_id.nil?
+      true
+    end
+
     # 属性名或者事件名检查
     def _check_name(name)
       raise IllegalParameterError.new("the name of event or property cannot be nil") if name.nil?
 
       unless name.instance_of?(String) || name.instance_of?(Symbol)
         raise IllegalParameterError.new("#{name} is invalid. It must be String or Symbol")
-      end
-
-      unless name =~ /^[a-zA-Z][a-zA-Z0-9_]{1,49}$/
-        raise IllegalParameterError.new("#{name} is invalid. It must be string starts with letters and contains letters, numbers, and _ with max length of 50")
       end
       true
     end
@@ -303,6 +375,7 @@ module TDAnalytics
 
       properties.each do |k, v|
         _check_name k
+        next if v.nil?
         unless v.is_a?(Integer) || v.is_a?(Float) || v.is_a?(Symbol) || v.is_a?(String) || v.is_a?(Time) || !!v == v || v.is_a?(Array)
           raise IllegalParameterError.new("The value of properties must be type in Integer, Float, Symbol, String, Array,and Time")
         end
@@ -324,14 +397,6 @@ module TDAnalytics
     # 检查用户 ID 合法性
     def _check_id(distinct_id, account_id)
       raise IllegalParameterError.new("account id or distinct id must be provided.") if distinct_id.nil? && account_id.nil?
-
-      unless distinct_id.nil?
-        raise IllegalParameterError.new("The length of distinct id should in (0, 64]") if distinct_id.to_s.length < 1 || distinct_id.to_s.length > 64
-      end
-
-      unless account_id.nil?
-        raise IllegalParameterError.new("The length of account id should in (0, 64]") if account_id.to_s.length < 1 || account_id.to_s.length > 64
-      end
     end
   end
 end

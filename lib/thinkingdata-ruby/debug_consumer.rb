@@ -15,9 +15,15 @@ module TDAnalytics
 
     def add(message)
       puts message.to_json
+      headers =  {
+          'TA-Integration-Type'=>'Ruby',
+          'TA-Integration-Version'=>TDAnalytics::VERSION,
+          'TA-Integration-Count'=>'1',
+          'TA_Integration-Extra'=>'debug'
+      }
       form_data = {"data" => message.to_json, "appid" => @app_id, "dryRun" => @write_data ? "0" : "1", "source" => "server"}
       begin
-        response_code, response_body = request(@server_uri, form_data)
+        response_code, response_body = request(@server_uri, form_data,headers)
       rescue => e
         raise ConnectionError.new("Could not connect to TA server, with error \"#{e.message}\".")
       end
@@ -36,8 +42,8 @@ module TDAnalytics
       end
     end
 
-    def request(uri, form_data)
-      request = Net::HTTP::Post.new(uri.request_uri)
+    def request(uri, form_data,headers)
+      request = Net::HTTP::Post.new(uri.request_uri,headers)
       request.set_form_data(form_data)
 
       client = Net::HTTP.new(uri.host, uri.port)
