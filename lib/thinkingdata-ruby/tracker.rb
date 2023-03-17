@@ -88,7 +88,7 @@ module TDAnalytics
       data[:first_check_id] = first_check_id if first_check_id
       data[:properties] = properties
 
-      _internal_track(:track, data)
+      _internal_track(:track, **data)
     end
 
     #   上报事件数据可进行更新. 每个事件都包含一个事件名和事件ID以及 Hash 对象的时间属性. 其参数说明如下:
@@ -121,7 +121,7 @@ module TDAnalytics
       data[:time] = time if time
       data[:ip] = ip if ip
       data[:properties] = properties
-      _internal_track(:track_overwrite, data)
+      _internal_track(:track_overwrite, **data)
     end
 
 
@@ -156,7 +156,7 @@ module TDAnalytics
       data[:time] = time if time
       data[:ip] = ip if ip
       data[:properties] = properties
-      _internal_track(:track_update, data)
+      _internal_track(:track_update, **data)
     end
 
     # 设置用户属性. 如果出现同名属性，则会覆盖之前的值.
