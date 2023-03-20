@@ -2,10 +2,9 @@ require 'json'
 require 'net/http'
 
 module TDAnalytics
-  # BatchConsumer 批量同步的发送数据.
-  # 有数据时，首先会加入本地缓冲区，当条数到达上限后会发起上报
   class BatchConsumer
-    # 默认缓冲区大小
+
+    # buffer count
     DEFAULT_LENGTH = 20
     MAX_LENGTH = 2000
 
@@ -93,7 +92,6 @@ module TDAnalytics
     end
   end
 
-  # 内部使用，为了兼容老版本服务端，将 Header 名称限定为小写
   class CaseSensitivePost < Net::HTTP::Post
     def initialize_http_header(headers)
       @header = {}

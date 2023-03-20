@@ -2,14 +2,25 @@ require 'logger'
 require 'thinkingdata-ruby/errors'
 
 module TDAnalytics
-  # 将数据写入本地文件, 需配合 LogBus 将数据上传到服务器
-  # 由于 LogBus 有完善的失败重传机制，因此建议用户首先考虑此方案
+
+  # dismantle the header and save it under another name
+  class HeadlessLogger < Logger
+    def initialize(logdev, shift_age = 0, shift_size = 1048576)
+      super(nil )
+      if logdev
+        @logdev = HeadlessLogger::LogDevice.new(logdev, shift_age: shift_age, shift_size: shift_size)
+      end
+    end
+
+    class LogDevice < ::Logger::LogDevice
+      def add_log_header(file); end
+    end
+  end
+
+  # write data to file, it works with LogBus
   class LoggerConsumer
-    # LoggerConsumer 构造函数
-    #   log_path: 日志文件存放目录
-    #   mode: 日志文件切分模式，可选 daily/hourly
-    #   prefix: 日志文件前缀，默认为 'tda.log', 日志文件名格式为: tda.log.2019-11-15
-    def initialize(log_path='.', mode='daily', prefix:'tda.log')
+
+    def initialize(log_path='.', mode='daily', prefix:'te.log')
       case mode
       when 'hourly'
         @suffix_mode = '%Y-%m-%d-%H'
@@ -22,9 +33,8 @@ module TDAnalytics
       raise IllegalParameterError.new("prefix couldn't be empty") if prefix.nil? || prefix.length == 0
 
       @current_suffix = Time.now.strftime(@suffix_mode)
-
-      @full_prefix = "#{log_path}/#{prefix}."
-
+      @log_path = log_path
+      @full_prefix = "#{log_path}/#{prefix}"
       _reset
     end
 
@@ -37,17 +47,16 @@ module TDAnalytics
       @logger.info(msg.to_json)
     end
   
-    # 关闭 logger
     def close
       @logger.close
     end
 
     private
 
-    # 重新创建 logger 对象. LogBus 判断新文件会同时考虑文件名和 inode，因此默认的切分方式会导致数据重传
     def _reset
-      @logger = Logger.new("#{@full_prefix}#{@current_suffix}")
-      @logger.level = Logger::INFO
+      Dir::mkdir(@log_path) unless Dir::exist?(@log_path)
+      @logger = HeadlessLogger.new("#{@full_prefix}.#{@current_suffix}")
+      @logger.level = HeadlessLogger::INFO
       @logger.formatter = proc do |severity, datetime, progname, msg|
         "#{msg}\n"
       end

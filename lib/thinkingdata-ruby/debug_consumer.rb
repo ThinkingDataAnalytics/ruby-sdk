@@ -2,15 +2,19 @@ require 'json'
 require 'net/http'
 
 module TDAnalytics
-  # DebugConsumer 逐条、同步地向服务端上报数据
-  # DebugConsumer 会返回详细的报错信息，建议在集成阶段先使用 DebugConsumer 调试接口
+  # The data is reported one by one, and when an error occurs, the log will be printed on the console.
   class DebugConsumer
 
-    def initialize(server_url, app_id, write_data = true)
+    def test
+
+    end
+
+    def initialize(server_url, app_id, write_data = true, device_id: nil)
       @server_uri = URI.parse(server_url)
       @server_uri.path = '/data_debug'
       @app_id = app_id
       @write_data = write_data
+      @device_id = device_id
     end
 
     def add(message)
@@ -22,6 +26,8 @@ module TDAnalytics
           'TA_Integration-Extra'=>'debug'
       }
       form_data = {"data" => message.to_json, "appid" => @app_id, "dryRun" => @write_data ? "0" : "1", "source" => "server"}
+      @device_id.is_a?(String) ? form_data["deviceId"] = @device_id : nil
+
       begin
         response_code, response_body = request(@server_uri, form_data,headers)
       rescue => e

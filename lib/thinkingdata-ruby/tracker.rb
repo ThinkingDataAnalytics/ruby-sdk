@@ -3,34 +3,39 @@ require 'thinkingdata-ruby/errors'
 require 'thinkingdata-ruby/version'
 
 module TDAnalytics
-  # TDAnalytics::Tracker 是数据上报的核心类，使用此类上报事件数据和更新用户属性.
-  # 创建 Tracker 类需要传入 consumer 对象，consumer 决定了如何处理格式化的数据（存储在本地日志文件还是上传到服务端).
-  #
-  #   ta = TDAnalytics::Tracker.new(consumer)
-  #   ta.track('your_event', distinct_id: 'distinct_id_of_user')
-  #
-  # TDAnalytics 提供了三种 consumer 实现:
-  #   LoggerConsumer: 数据写入本地文件
-  #   DebugConsumer: 数据逐条、同步的发送到服务端，并返回详细的报错信息
-  #   BatchConsumer: 数据批量、同步的发送到服务端
-  #
-  # 您也可以传入自己实现的 Consumer，只需实现以下接口:
-  #   add(message): 接受 hash 类型的数据对象
-  #   flush: (可选) 将缓冲区的数据发送到指定地址
-  #   close: (可选) 程序退出时用户可以主动调用此接口以保证安全退出
-  class Tracker
+  @is_enable_log = false
+  @is_stringent = false
 
+  def self.set_enable_log(enable)
+    unless [true, false].include? enable
+      enable = false
+    end
+    @is_enable_log = enable
+  end
+
+  def self.get_enable_log
+    @is_enable_log
+  end
+
+  def self.set_stringent(enable)
+    unless [true, false].include? enable
+      enable = false
+    end
+    @is_stringent = enable
+  end
+
+  def self.get_stringent
+    @is_stringent
+  end
+
+  class Tracker
     LIB_PROPERTIES = {
       '#lib' => 'ruby',
       '#lib_version' => TDAnalytics::VERSION,
     }
 
-    # SDK 构造函数，传入 consumer 对象
-    #
-    # 默认情况下，除参数不合法外，其他 Error 会被忽略，如果您希望自己处理接口调用中的 Error，可以传入自定义的 error handler.
-    # ErrorHandler 的定义可以参考 thinkingdata-ruby/errors.rb
-    #
-    # uuid 如果为 true，每条数据都会被带上随机 UUID 作为 #uuid 属性的值上报，该值不会入库，仅仅用于后台做数据重复检测
+    @@dynamic_block = nil
+
     def initialize(consumer, error_handler = nil, uuid: false)
       @error_handler = error_handler || ErrorHandler.new
       @consumer = consumer
@@ -38,10 +43,9 @@ module TDAnalytics
       @uuid = uuid
     end
 
-    # 设置公共事件属性，公共事件属性是所有事件都会带上的属性. 此方法会将传入的属性与当前公共属性合并.
-    # 如果希望跳过本地格式校验，可以传入值为 true 的 skip_local_check 参数
+    # set common properties
     def set_super_properties(properties, skip_local_check = false)
-      unless skip_local_check || _check_properties(:track, properties)
+      unless TDAnalytics::get_stringent == false || skip_local_check || _check_properties(:track, properties)
         @error_handler.handle(IllegalParameterError.new("Invalid super properties"))
         return false
       end
@@ -54,19 +58,27 @@ module TDAnalytics
       end
     end
 
-    # 清除公共事件属性
     def clear_super_properties
       @super_properties = {}
     end
 
-    # 上报事件. 每个事件都包含一个事件名和 Hash 对象的时间属性. 其参数说明如下:
-    #   event_name: (必须) 事件名 必须是英文字母开头，可以包含字母、数字和 _, 长度不超过 50 个字符.
-    #   distinct_id: (可选) 访客 ID
-    #   account_id: （可选) 账号ID distinct_id 和 account_id 不能同时为空
-    #   properties: （可选) Hash 事件属性。支持四种类型的值：字符串、数值、Time、boolean
-    #   time: （可选）Time 事件发生时间，如果不传默认为系统当前时间
-    #   ip: (可选) 事件 IP，如果传入 IP 地址，后端可以通过 IP 地址解析事件发生地点
-    #   skip_local_check: (可选) boolean 表示是否跳过本地检测
+    def set_dynamic_super_properties(&block)
+      @@dynamic_block = block
+    end
+
+    def clear_dynamic_super_properties
+      @@dynamic_block = nil
+    end
+
+    # report ordinary event
+    #   event_name: (require) A string of 50 letters and digits that starts with '#' or a letter
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
+    #   properties: （optional) string、number、Time、boolean
+    #   time: （optional）Time
+    #   ip: (optional) ip
+    #   first_check_id: (optional) The value cannot be null for the first event
+    #   skip_local_check: (optional) check data or not
     def track(event_name: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil,first_check_id:nil, skip_local_check: false)
       begin
         _check_name event_name
@@ -79,27 +91,10 @@ module TDAnalytics
         return false
       end
 
-      data = {}
-      data[:event_name] = event_name
-      data[:distinct_id] = distinct_id if distinct_id
-      data[:account_id] = account_id if account_id
-      data[:time] = time if time
-      data[:ip] = ip if ip
-      data[:first_check_id] = first_check_id if first_check_id
-      data[:properties] = properties
-
-      _internal_track(:track, data)
+      _internal_track(:track, event_name: event_name, distinct_id: distinct_id, account_id: account_id, properties: properties, time: time, ip: ip, first_check_id: first_check_id)
     end
 
-    #   上报事件数据可进行更新. 每个事件都包含一个事件名和事件ID以及 Hash 对象的时间属性. 其参数说明如下:
-    #   event_name: (必须) 事件名 必须是英文字母开头，可以包含字母、数字和 _, 长度不超过 50 个字符.
-    #   event_id:(必须) event_name + event_id 会作为一条事件的唯一键
-    #   distinct_id: (可选) 访客 ID
-    #   account_id: （可选) 账号ID distinct_id 和 account_id 不能同时为空
-    #   properties: （可选) Hash 事件属性。支持四种类型的值：字符串、数值、Time、boolean
-    #   time: （可选）Time 事件发生时间，如果不传默认为系统当前时间
-    #   ip: (可选) 事件 IP，如果传入 IP 地址，后端可以通过 IP 地址解析事件发生地点
-    #   skip_local_check: (可选) boolean 表示是否跳过本地检测
+    # report overridable event
     def track_overwrite(event_name: nil,event_id: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil, skip_local_check: false)
       begin
         _check_name event_name
@@ -113,28 +108,10 @@ module TDAnalytics
         return false
       end
 
-      data = {}
-      data[:event_name] = event_name
-      data[:event_id] = event_id
-      data[:distinct_id] = distinct_id if distinct_id
-      data[:account_id] = account_id if account_id
-      data[:time] = time if time
-      data[:ip] = ip if ip
-      data[:properties] = properties
-      _internal_track(:track_overwrite, data)
+      _internal_track(:track_overwrite, event_name: event_name, event_id: event_id, distinct_id: distinct_id, account_id: account_id, properties: properties, time: time, ip: ip)
     end
 
-
-
-    #   上报事件数据可进行覆盖. 每个事件都包含一个事件名和事件ID以及 Hash 对象的时间属性. 其参数说明如下:
-    #   event_name: (必须) 事件名 必须是英文字母开头，可以包含字母、数字和 _, 长度不超过 50 个字符.
-    #   event_id:(必须) event_name + event_id 会作为一条事件的唯一键
-    #   distinct_id: (可选) 访客 ID
-    #   account_id: （可选) 账号ID distinct_id 和 account_id 不能同时为空
-    #   properties: （可选) Hash 事件属性。支持四种类型的值：字符串、数值、Time、boolean
-    #   time: （可选）Time 事件发生时间，如果不传默认为系统当前时间
-    #   ip: (可选) 事件 IP，如果传入 IP 地址，后端可以通过 IP 地址解析事件发生地点
-    #   skip_local_check: (可选) boolean 表示是否跳过本地检测
+    # report updatable event
     def track_update(event_name: nil,event_id: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil, skip_local_check: false)
       begin
         _check_name event_name
@@ -148,21 +125,10 @@ module TDAnalytics
         return false
       end
 
-      data = {}
-      data[:event_name] = event_name
-      data[:event_id] = event_id
-      data[:distinct_id] = distinct_id if distinct_id
-      data[:account_id] = account_id if account_id
-      data[:time] = time if time
-      data[:ip] = ip if ip
-      data[:properties] = properties
-      _internal_track(:track_update, data)
+      _internal_track(:track_update, event_name: event_name, event_id: event_id, distinct_id: distinct_id, account_id: account_id, properties: properties, time: time, ip: ip)
     end
 
-    # 设置用户属性. 如果出现同名属性，则会覆盖之前的值.
-    #   distinct_id: (可选) 访客 ID
-    #   account_id: （可选) 账号ID distinct_id 和 account_id 不能同时为空
-    #   properties: （可选) Hash 用户属性。支持四种类型的值：字符串、数值、Time、boolean
+    # set user properties. would overwrite existing names.
     def user_set(distinct_id: nil, account_id: nil, properties: {}, ip: nil)
       begin
         _check_id(distinct_id, account_id)
@@ -172,15 +138,10 @@ module TDAnalytics
         return false
       end
 
-      _internal_track(:user_set,
-                      distinct_id: distinct_id,
-                      account_id: account_id,
-                      properties: properties,
-                      ip: ip,
-      )
+      _internal_track(:user_set, distinct_id: distinct_id, account_id: account_id, properties: properties, ip: ip)
     end
 
-    # 设置用户属性. 如果有重名属性，则丢弃, 参数与 user_set 相同
+    # set user properties, If such property had been set before, this message would be neglected.
     def user_set_once(distinct_id: nil, account_id: nil, properties: {}, ip: nil)
       begin
         _check_id(distinct_id, account_id)
@@ -198,7 +159,7 @@ module TDAnalytics
       )
     end
 
-    # 追加用户的一个或多个列表类型的属性
+    # to add user properties of array type.
     def user_append(distinct_id: nil, account_id: nil, properties: {})
       begin
         _check_id(distinct_id, account_id)
@@ -215,7 +176,23 @@ module TDAnalytics
                       )
     end
 
-    # 删除用户属性, property 可以传入需要删除的用户属性的 key 值，或者 key 值数组
+    def user_uniq_append(distinct_id: nil, account_id: nil, properties: {})
+      begin
+        _check_id(distinct_id, account_id)
+        _check_properties(:user_uniq_append, properties)
+      rescue TDAnalyticsError => e
+        @error_handler.handle(e)
+        return false
+      end
+
+      _internal_track(:user_uniq_append,
+                      distinct_id: distinct_id,
+                      account_id: account_id,
+                      properties: properties,
+                      )
+    end
+
+    # clear the user properties of users.
     def user_unset(distinct_id: nil, account_id: nil, property: nil)
       properties = {}
       if property.is_a?(Array)
@@ -241,10 +218,7 @@ module TDAnalytics
       )
     end
 
-    # 累加用户属性, 如果用户属性不存在，则会设置为 0，然后再累加
-    #   distinct_id: (可选) 访客 ID
-    #   account_id: （可选) 账号ID distinct_id 和 account_id 不能同时为空
-    #   properties: （可选) Hash 数值类型的用户属性
+    # to accumulate operations against the property.
     def user_add(distinct_id: nil, account_id: nil, properties: {})
       begin
         _check_id(distinct_id, account_id)
@@ -261,7 +235,7 @@ module TDAnalytics
       )
     end
 
-    # 删除用户，用户之前的事件数据不会被删除
+    # delete a user, This operation cannot be undone.
     def user_del(distinct_id: nil, account_id: nil)
       begin
         _check_id(distinct_id, account_id)
@@ -276,7 +250,7 @@ module TDAnalytics
       )
     end
 
-    # 立即上报数据，对于 BatchConsumer 会触发上报
+    # report data immediately.
     def flush
       return true unless defined? @consumer.flush
       ret = true
@@ -289,7 +263,7 @@ module TDAnalytics
       ret
     end
 
-    # 退出前调用，保证 Consumer 安全退出
+    # Close and exit sdk
     def close
       return true unless defined? @consumer.close
       ret = true
@@ -304,37 +278,39 @@ module TDAnalytics
 
     private
 
-    # 出现异常的时候返回 false, 否则 true
-    def _internal_track(type, properties: {}, event_name: nil, event_id:nil, account_id: nil, distinct_id: nil, ip: nil,first_check_id: nil, time: Time.now)
-      if account_id == nil && distinct_id == nil
-        raise IllegalParameterError.new('account id or distinct id must be provided.')
-      end
-
+    def _internal_track(type, properties: {}, event_name: nil, event_id:nil, account_id: nil, distinct_id: nil, ip: nil,first_check_id: nil, time: nil)
       if type == :track || type == :track_update || type == :track_overwrite
-        raise IllegalParameterError.new('event name is empty') if event_name == nil
-        properties = {'#zone_offset': time.utc_offset / 3600.0}.merge(LIB_PROPERTIES).merge(@super_properties).merge(properties)
+        dynamic_properties = @@dynamic_block.respond_to?(:call) ? @@dynamic_block.call : {}
+        properties = LIB_PROPERTIES.merge(@super_properties).merge(dynamic_properties).merge(properties)
       end
 
-      # 格式化 Time 类型
+      data = {
+        '#type' => type,
+      }
+
       properties.each do |k, v|
         if v.is_a?(Time)
           properties[k] = _format_time(v)
         end
       end
 
-      data = {
-          '#type' => type,
-          '#time' => _format_time(time),
-          'properties' => properties,
-      }
+      _move_preset_properties([:'#ip', :"#time", :"#app_id", :"#uuid"], data, properties: properties)
 
-      data['#event_name'] = event_name if (type == :track || type == :track_update || :track_overwrite)
+      if data[:'#time'] == nil
+        if time == nil
+          time = Time.now
+        end
+        data[:'#time'] = _format_time(time)
+      end
+
+      data['properties'] = properties
+      data['#event_name'] = event_name if (type == :track || type == :track_update || type == :track_overwrite)
       data['#event_id'] = event_id if (type == :track_update || type == :track_overwrite)
       data['#account_id'] = account_id if account_id
       data['#distinct_id'] = distinct_id if distinct_id
       data['#ip'] = ip if ip
       data['#first_check_id'] = first_check_id if first_check_id
-      data['#uuid'] = SecureRandom.uuid if @uuid
+      data[:'#uuid'] = SecureRandom.uuid if @uuid and data[:'#uuid'] == nil
 
       ret = true
       begin
@@ -347,18 +323,24 @@ module TDAnalytics
       ret
     end
 
-    # 将 Time 类型格式化为数数指定格式的字符串
     def _format_time(time)
       time.strftime("%Y-%m-%d %H:%M:%S.#{((time.to_f * 1000.0).to_i % 1000).to_s.rjust(3, "0")}")
     end
 
     def _check_event_id(event_id)
+      if TDAnalytics::get_stringent == false
+        return true
+      end
+
       raise IllegalParameterError.new("the event_id or property cannot be nil") if event_id.nil?
       true
     end
 
-    # 属性名或者事件名检查
     def _check_name(name)
+      if TDAnalytics::get_stringent == false
+        return true
+      end
+
       raise IllegalParameterError.new("the name of event or property cannot be nil") if name.nil?
 
       unless name.instance_of?(String) || name.instance_of?(Symbol)
@@ -367,8 +349,11 @@ module TDAnalytics
       true
     end
 
-    # 属性类型检查
     def _check_properties(type, properties)
+      if TDAnalytics::get_stringent == false
+        return true
+      end
+
       unless properties.instance_of? Hash
         return false
       end
@@ -394,9 +379,31 @@ module TDAnalytics
       true
     end
 
-    # 检查用户 ID 合法性
     def _check_id(distinct_id, account_id)
+      if TDAnalytics::get_stringent == false
+        return true
+      end
+
       raise IllegalParameterError.new("account id or distinct id must be provided.") if distinct_id.nil? && account_id.nil?
+    end
+
+    def _move_preset_properties(keys, data, properties: {})
+      property_keys = properties.keys
+      keys.each { |k|
+        if property_keys.include? k
+          data[k] = properties[k]
+          properties.delete(k)
+        end
+      }
+    end
+  end
+
+  class TELog
+    def self.info(*msg)
+      if TDAnalytics::get_enable_log
+        print("[ThinkingEngine][#{Time.now}][info]-")
+        puts(msg)
+      end
     end
   end
 end
