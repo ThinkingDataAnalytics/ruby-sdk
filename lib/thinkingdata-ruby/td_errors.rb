@@ -1,17 +1,25 @@
-module TDAnalytics
-
+module ThinkingData
+  ##
+  # SDK error
   TDAnalyticsError = Class.new(StandardError)
 
+  ##
+  # SDK error: illegal parameter
   IllegalParameterError = Class.new(TDAnalyticsError)
-  
+
+  ##
+  # SDK error: connection error
   ConnectionError = Class.new(TDAnalyticsError)
-  
+
+  ##
+  # SDK error: server error
   ServerError = Class.new(TDAnalyticsError)
 
-
-  # use example:
+  ##
+  # Error handler
   #
-  #    class MyErrorHandler < TDAnalytics::ErrorHandler
+  # e.g.
+  #    class MyErrorHandler < ThinkingData::ErrorHandler
   #      def handle(error)
   #          puts error
   #          raise error
@@ -19,9 +27,9 @@ module TDAnalytics
   #    end
   #
   #    my_error_handler = MyErrorHandler.new
-  #    tracker = TDAnalytics::Tracker.new(consumer, my_error_handler)
-  class ErrorHandler
-
+  #    tracker = ThinkingData::TDAnalytics.new(consumer, my_error_handler)
+  class TDErrorHandler
+    ##
     # Override #handle to customize error handling
     def handle(error)
       false

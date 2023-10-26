@@ -1,12 +1,13 @@
 require 'logger'
-require 'thinkingdata-ruby/errors'
+require 'thinkingdata-ruby/td_errors'
 
-module TDAnalytics
+module ThinkingData
 
-  # dismantle the header and save it under another name
+  ##
+  # Dismantle the header and save it under another name
   class HeadlessLogger < Logger
     def initialize(logdev, shift_age = 0, shift_size = 1048576)
-      super(nil )
+      super(nil)
       if logdev
         @logdev = HeadlessLogger::LogDevice.new(logdev, shift_age: shift_age, shift_size: shift_size)
       end
@@ -17,9 +18,15 @@ module TDAnalytics
     end
   end
 
-  # write data to file, it works with LogBus
-  class LoggerConsumer
+  ##
+  # Write data to file, it works with LogBus
+  class TDLoggerConsumer
 
+    ##
+    # Init logger consumer
+    #   @param log_path: log file's path
+    #   @param mode: file rotate mode
+    #   @param prefix: file prefix
     def initialize(log_path='.', mode='daily', prefix:'te.log')
       case mode
       when 'hourly'
@@ -35,6 +42,7 @@ module TDAnalytics
       @current_suffix = Time.now.strftime(@suffix_mode)
       @log_path = log_path
       @full_prefix = "#{log_path}/#{prefix}"
+      TDLog.info("TDLoggerConsumer init success. LogPath: #{log_path}")
       _reset
     end
 
@@ -44,11 +52,14 @@ module TDAnalytics
         @current_suffix = Time.now.strftime(@suffix_mode)
         _reset
       end
-      @logger.info(msg.to_json)
+      msg_json_str = msg.to_json
+      TDLog.info("Write data to file: #{msg_json_str}")
+      @logger.info(msg_json_str)
     end
   
     def close
       @logger.close
+      TDLog.info("TDLoggerConsumer close.")
     end
 
     private

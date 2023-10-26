@@ -1,11 +1,16 @@
 require 'securerandom'
-require 'thinkingdata-ruby/errors'
-require 'thinkingdata-ruby/version'
+require 'thinkingdata-ruby/td_errors'
+require 'thinkingdata-ruby/td_version'
 
-module TDAnalytics
+##
+# ThinkingData module
+module ThinkingData
   @is_enable_log = false
   @is_stringent = false
 
+  ##
+  # Enable SDK log or not
+  # @param enable [Boolean] true or false
   def self.set_enable_log(enable)
     unless [true, false].include? enable
       enable = false
@@ -13,10 +18,16 @@ module TDAnalytics
     @is_enable_log = enable
   end
 
+  ##
+  # Get log status
+  # @return [Boolean] enable or not
   def self.get_enable_log
     @is_enable_log
   end
 
+  ##
+  # Check or not parameter
+  # @param enable [Boolean] check or not
   def self.set_stringent(enable)
     unless [true, false].include? enable
       enable = false
@@ -24,28 +35,40 @@ module TDAnalytics
     @is_stringent = enable
   end
 
+  ##
+  # Get parameter check status of SDK
+  # @return [Boolean] check or not
   def self.get_stringent
     @is_stringent
   end
 
-  class Tracker
+  ##
+  # Analytics class。 Provides the function of tracking data
+  class TDAnalytics
     LIB_PROPERTIES = {
       '#lib' => 'ruby',
-      '#lib_version' => TDAnalytics::VERSION,
+      '#lib_version' => ThinkingData::VERSION,
     }
 
-    @@dynamic_block = nil
+    @dynamic_block = nil
 
+    ##
+    # Init function
+    #   @param consumer [consumer] data consumer: TDLoggerConsumer | TDDebugConsumer | TDBatchConsumer
+    #   @param error_handler [TDErrorHandler] custom error handler, process SDK error. It could be nil
+    #   @param uuid [Boolean] Whether to automatically add uuid
     def initialize(consumer, error_handler = nil, uuid: false)
-      @error_handler = error_handler || ErrorHandler.new
+      @error_handler = error_handler || TDErrorHandler.new
       @consumer = consumer
       @super_properties = {}
-      @uuid = uuid
+      @uuid_enable = uuid
+      TDLog.info("SDK init success.")
     end
 
-    # set common properties
+    ##
+    # Set common properties
     def set_super_properties(properties, skip_local_check = false)
-      unless TDAnalytics::get_stringent == false || skip_local_check || _check_properties(:track, properties)
+      unless ThinkingData::get_stringent == false || skip_local_check || _check_properties(:track, properties)
         @error_handler.handle(IllegalParameterError.new("Invalid super properties"))
         return false
       end
@@ -58,19 +81,26 @@ module TDAnalytics
       end
     end
 
+    ##
+    # Clear super properties
     def clear_super_properties
       @super_properties = {}
     end
 
+    ##
+    # Set dynamic super properties
     def set_dynamic_super_properties(&block)
-      @@dynamic_block = block
+      @dynamic_block = block
     end
 
+    ##
+    # Clear dynamic super properties
     def clear_dynamic_super_properties
-      @@dynamic_block = nil
+      @dynamic_block = nil
     end
 
-    # report ordinary event
+    ##
+    # Report ordinary event
     #   event_name: (require) A string of 50 letters and digits that starts with '#' or a letter
     #   distinct_id: (optional) distinct ID
     #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
@@ -94,7 +124,16 @@ module TDAnalytics
       _internal_track(:track, event_name: event_name, distinct_id: distinct_id, account_id: account_id, properties: properties, time: time, ip: ip, first_check_id: first_check_id)
     end
 
-    # report overridable event
+    ##
+    # Report overridable event
+    #   event_name: (require) A string of 50 letters and digits that starts with '#' or a letter
+    #   event_id: (require) string
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
+    #   properties: （optional) string、number、Time、boolean
+    #   time: （optional）Time
+    #   ip: (optional) ip
+    #   skip_local_check: (optional) check data or not
     def track_overwrite(event_name: nil,event_id: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil, skip_local_check: false)
       begin
         _check_name event_name
@@ -111,7 +150,16 @@ module TDAnalytics
       _internal_track(:track_overwrite, event_name: event_name, event_id: event_id, distinct_id: distinct_id, account_id: account_id, properties: properties, time: time, ip: ip)
     end
 
-    # report updatable event
+    ##
+    # Report updatable event
+    #   event_name: (require) A string of 50 letters and digits that starts with '#' or a letter
+    #   event_id: (require) string
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
+    #   properties: （optional) string、number、Time、boolean
+    #   time: （optional）Time
+    #   ip: (optional) ip
+    #   skip_local_check: (optional) check data or not
     def track_update(event_name: nil,event_id: nil, distinct_id: nil, account_id: nil, properties: {}, time: nil, ip: nil, skip_local_check: false)
       begin
         _check_name event_name
@@ -128,7 +176,12 @@ module TDAnalytics
       _internal_track(:track_update, event_name: event_name, event_id: event_id, distinct_id: distinct_id, account_id: account_id, properties: properties, time: time, ip: ip)
     end
 
-    # set user properties. would overwrite existing names.
+    ##
+    # Set user properties. would overwrite existing names
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
+    #   properties: （optional) string、number、Time、boolean
+    #   ip: (optional) ip
     def user_set(distinct_id: nil, account_id: nil, properties: {}, ip: nil)
       begin
         _check_id(distinct_id, account_id)
@@ -141,7 +194,12 @@ module TDAnalytics
       _internal_track(:user_set, distinct_id: distinct_id, account_id: account_id, properties: properties, ip: ip)
     end
 
-    # set user properties, If such property had been set before, this message would be neglected.
+    ##
+    # Set user properties, If such property had been set before, this message would be neglected
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
+    #   properties: （optional) string、number、Time、boolean
+    #   ip: (optional) ip
     def user_set_once(distinct_id: nil, account_id: nil, properties: {}, ip: nil)
       begin
         _check_id(distinct_id, account_id)
@@ -159,7 +217,11 @@ module TDAnalytics
       )
     end
 
-    # to add user properties of array type.
+    ##
+    # To append user properties of array type
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
+    #   properties: （optional) string、number、Time、boolean
     def user_append(distinct_id: nil, account_id: nil, properties: {})
       begin
         _check_id(distinct_id, account_id)
@@ -176,6 +238,11 @@ module TDAnalytics
                       )
     end
 
+    ##
+    # To append user properties of array type. It filters out duplicate values
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
+    #   properties: （optional) string、number、Time、boolean
     def user_uniq_append(distinct_id: nil, account_id: nil, properties: {})
       begin
         _check_id(distinct_id, account_id)
@@ -192,7 +259,11 @@ module TDAnalytics
                       )
     end
 
-    # clear the user properties of users.
+    ##
+    # Clear the user properties of users
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
+    #   properties: （optional) string、number、Time、boolean
     def user_unset(distinct_id: nil, account_id: nil, property: nil)
       properties = {}
       if property.is_a?(Array)
@@ -218,7 +289,11 @@ module TDAnalytics
       )
     end
 
-    # to accumulate operations against the property.
+    ##
+    # To accumulate operations against the property
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
+    #   properties: （optional) string、number、Time、boolean
     def user_add(distinct_id: nil, account_id: nil, properties: {})
       begin
         _check_id(distinct_id, account_id)
@@ -235,7 +310,10 @@ module TDAnalytics
       )
     end
 
-    # delete a user, This operation cannot be undone.
+    ##
+    # Delete a user, This operation cannot be undone
+    #   distinct_id: (optional) distinct ID
+    #   account_id: (optional) account ID. distinct_id, account_id can't both be empty.
     def user_del(distinct_id: nil, account_id: nil)
       begin
         _check_id(distinct_id, account_id)
@@ -250,8 +328,10 @@ module TDAnalytics
       )
     end
 
-    # report data immediately.
+    ##
+    # Report data immediately
     def flush
+      TDLog.info("SDK flush data.")
       return true unless defined? @consumer.flush
       ret = true
       begin
@@ -263,6 +343,7 @@ module TDAnalytics
       ret
     end
 
+    ##
     # Close and exit sdk
     def close
       return true unless defined? @consumer.close
@@ -273,6 +354,9 @@ module TDAnalytics
         @error_handler.handle(e)
         ret = false
       end
+
+      TDLog.info("SDK close.")
+
       ret
     end
 
@@ -280,7 +364,7 @@ module TDAnalytics
 
     def _internal_track(type, properties: {}, event_name: nil, event_id:nil, account_id: nil, distinct_id: nil, ip: nil,first_check_id: nil, time: nil)
       if type == :track || type == :track_update || type == :track_overwrite
-        dynamic_properties = @@dynamic_block.respond_to?(:call) ? @@dynamic_block.call : {}
+        dynamic_properties = @dynamic_block.respond_to?(:call) ? @dynamic_block.call : {}
         properties = LIB_PROPERTIES.merge(@super_properties).merge(dynamic_properties).merge(properties)
       end
 
@@ -310,7 +394,7 @@ module TDAnalytics
       data['#distinct_id'] = distinct_id if distinct_id
       data['#ip'] = ip if ip
       data['#first_check_id'] = first_check_id if first_check_id
-      data[:'#uuid'] = SecureRandom.uuid if @uuid and data[:'#uuid'] == nil
+      data[:'#uuid'] = SecureRandom.uuid if @uuid_enable and data[:'#uuid'] == nil
 
       ret = true
       begin
@@ -328,7 +412,7 @@ module TDAnalytics
     end
 
     def _check_event_id(event_id)
-      if TDAnalytics::get_stringent == false
+      if ThinkingData::get_stringent == false
         return true
       end
 
@@ -337,7 +421,7 @@ module TDAnalytics
     end
 
     def _check_name(name)
-      if TDAnalytics::get_stringent == false
+      if ThinkingData::get_stringent == false
         return true
       end
 
@@ -350,7 +434,7 @@ module TDAnalytics
     end
 
     def _check_properties(type, properties)
-      if TDAnalytics::get_stringent == false
+      if ThinkingData::get_stringent == false
         return true
       end
 
@@ -380,7 +464,7 @@ module TDAnalytics
     end
 
     def _check_id(distinct_id, account_id)
-      if TDAnalytics::get_stringent == false
+      if ThinkingData::get_stringent == false
         return true
       end
 
@@ -398,10 +482,12 @@ module TDAnalytics
     end
   end
 
-  class TELog
+  ##
+  # SDK log module
+  class TDLog
     def self.info(*msg)
-      if TDAnalytics::get_enable_log
-        print("[ThinkingEngine][#{Time.now}][info]-")
+      if ThinkingData::get_enable_log
+        print("[ThinkingData][#{Time.now}] ")
         puts(msg)
       end
     end

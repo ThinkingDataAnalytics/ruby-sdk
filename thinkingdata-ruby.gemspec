@@ -1,8 +1,8 @@
-require File.join(File.dirname(__FILE__), 'lib/thinkingdata-ruby/version.rb')
+require File.join(File.dirname(__FILE__), 'lib/thinkingdata-ruby/td_version.rb')
 
 spec = Gem::Specification.new do |spec|
   spec.name = 'thinkingdata-ruby'
-  spec.version = TDAnalytics::VERSION
+  spec.version = ThinkingData::VERSION
   spec.files = Dir.glob(`git ls-files`.split("\n"))
   spec.require_paths = ['lib']
   spec.summary = 'Official ThinkingData Analytics API for ruby'

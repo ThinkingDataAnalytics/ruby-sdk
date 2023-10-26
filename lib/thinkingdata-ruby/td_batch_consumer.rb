@@ -1,13 +1,18 @@
 require 'json'
 require 'net/http'
+require 'stringio'
 
-module TDAnalytics
-  class BatchConsumer
+module ThinkingData
+  ##
+  # Upload data by http
+  class TDBatchConsumer
 
     # buffer count
     DEFAULT_LENGTH = 20
     MAX_LENGTH = 2000
 
+    ##
+    # Init batch consumer
     def initialize(server_url, app_id, max_buffer_length = DEFAULT_LENGTH)
       @server_uri = URI.parse(server_url)
       @server_uri.path = '/sync_server'
@@ -15,22 +20,37 @@ module TDAnalytics
       @compress = true
       @max_length = [max_buffer_length, MAX_LENGTH].min
       @buffers = []
+      TDLog.info("TDBatchConsumer init success. ServerUrl: #{server_url}, appId: #{app_id}")
     end
 
+    ##
+    # http request compress
+    # @param compress [Boolean] compress or not
+    # @deprecated please use: set_compress
     def _set_compress(compress)
       @compress = compress
     end
 
+    ##
+    # http request compress
+    # @param compress [Boolean] compress or not
+    def set_compress(compress)
+      @compress = compress
+    end
+
     def add(message)
+      TDLog.info("Enqueue data to buffer. buffer size: #{@buffers.length}, data: #{message}")
       @buffers << message
       flush if @buffers.length >= @max_length
     end
 
     def close
       flush
+      TDLog.info("TDBatchConsumer close.")
     end
 
     def flush
+      TDLog.info("TDBatchConsumer flush data.")
       begin
         @buffers.each_slice(@max_length) do |chunk|
           if @compress
@@ -46,17 +66,19 @@ module TDAnalytics
           headers = {'Content-Type' => 'application/plaintext',
                      'appid' => @app_id,
                      'compress' => compress_type,
-                     'TA-Integration-Type'=>'Ruby',
-                     'TA-Integration-Version'=>TDAnalytics::VERSION,
-                     'TA-Integration-Count'=>@buffers.count,
+                     'TE-Integration-Type'=>'Ruby',
+                     'TE-Integration-Version'=>ThinkingData::VERSION,
+                     'TE-Integration-Count'=>@buffers.count,
                      'TA_Integration-Extra'=>'batch'}
           request = CaseSensitivePost.new(@server_uri.request_uri, headers)
           request.body = data
 
+          TDLog.info("Send data, request: #{data}")
           begin
             response_code, response_body = _request(@server_uri, request)
+            TDLog.info("Send data, response: #{response_body}")
           rescue => e
-            raise ConnectionError.new("Could not connect to TA server, with error \"#{e.message}\".")
+            raise ConnectionError.new("Could not connect to TE server, with error \"#{e.message}\".")
           end
 
           result = {}
@@ -64,12 +86,12 @@ module TDAnalytics
             begin
               result = JSON.parse(response_body.to_s)
             rescue JSON::JSONError
-              raise ServerError.new("Could not interpret TA server response: '#{response_body}'")
+              raise ServerError.new("Could not interpret TE server response: '#{response_body}'")
             end
           end
 
           if result['code'] != 0
-            raise ServerError.new("Could not write to TA, server responded with #{response_code} returning: '#{response_body}'")
+            raise ServerError.new("Could not write to TE, server responded with #{response_code} returning: '#{response_body}'")
           end
         end
       rescue
@@ -92,6 +114,8 @@ module TDAnalytics
     end
   end
 
+  ##
+  # Private class. Send data tools
   class CaseSensitivePost < Net::HTTP::Post
     def initialize_http_header(headers)
       @header = {}
