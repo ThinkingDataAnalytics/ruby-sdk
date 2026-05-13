@@ -1,3 +1,10 @@
+### v2.0.1
+**Date:** 2026/05/13
+
+**Notes:**
+
+* Supports multi-threaded invocation
+
 ### v2.0.0
 **Date:** 2023/09/20
 

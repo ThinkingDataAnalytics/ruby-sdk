@@ -20,6 +20,7 @@ module ThinkingData
       @compress = true
       @max_length = [max_buffer_length, MAX_LENGTH].min
       @buffers = []
+      @mutex = Mutex.new
       TDLog.info("TDBatchConsumer init success. ServerUrl: #{server_url}, appId: #{app_id}")
     end
 
@@ -40,8 +41,12 @@ module ThinkingData
 
     def add(message)
       TDLog.info("Enqueue data to buffer. buffer size: #{@buffers.length}, data: #{message}")
-      @buffers << message
-      flush if @buffers.length >= @max_length
+      need_flush = false
+      @mutex.synchronize do
+        @buffers << message
+        need_flush = @buffers.length >= @max_length
+      end
+      flush if need_flush
     end
 
     def close
@@ -51,8 +56,16 @@ module ThinkingData
 
     def flush
       TDLog.info("TDBatchConsumer flush data.")
+      data_to_send = nil
+      @mutex.synchronize do
+        data_to_send = @buffers.dup
+        @buffers = []
+      end
+
+      return if data_to_send.empty?
+
       begin
-        @buffers.each_slice(@max_length) do |chunk|
+        data_to_send.each_slice(@max_length) do |chunk|
           if @compress
             wio = StringIO.new("w")
             gzip_io = Zlib::GzipWriter.new(wio)
@@ -68,7 +81,7 @@ module ThinkingData
                      'compress' => compress_type,
                      'TE-Integration-Type'=>'Ruby',
                      'TE-Integration-Version'=>ThinkingData::VERSION,
-                     'TE-Integration-Count'=>@buffers.count,
+                     'TE-Integration-Count'=>data_to_send.count,
                      'TA_Integration-Extra'=>'batch'}
           request = CaseSensitivePost.new(@server_uri.request_uri, headers)
           request.body = data
@@ -97,7 +110,6 @@ module ThinkingData
       rescue
         raise
       end
-      @buffers = []
     end
 
     private

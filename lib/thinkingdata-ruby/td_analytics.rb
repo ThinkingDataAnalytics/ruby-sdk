@@ -62,21 +62,24 @@ module ThinkingData
       @consumer = consumer
       @super_properties = {}
       @uuid_enable = uuid
+      @mutex = Mutex.new
       TDLog.info("SDK init success.")
     end
 
     ##
     # Set common properties
     def set_super_properties(properties, skip_local_check = false)
-      unless ThinkingData::get_stringent == false || skip_local_check || _check_properties(:track, properties)
-        @error_handler.handle(IllegalParameterError.new("Invalid super properties"))
-        return false
-      end
-      properties.each do |k, v|
-        if v.is_a?(Time)
-          @super_properties[k] = _format_time(v)
-        else
-          @super_properties[k] = v
+      @mutex.synchronize do
+        unless ThinkingData::get_stringent == false || skip_local_check || _check_properties(:track, properties)
+          @error_handler.handle(IllegalParameterError.new("Invalid super properties"))
+          return false
+        end
+        properties.each do |k, v|
+          if v.is_a?(Time)
+            @super_properties[k] = _format_time(v)
+          else
+            @super_properties[k] = v
+          end
         end
       end
     end
@@ -84,19 +87,25 @@ module ThinkingData
     ##
     # Clear super properties
     def clear_super_properties
-      @super_properties = {}
+      @mutex.synchronize do
+        @super_properties = {}
+      end
     end
 
     ##
     # Set dynamic super properties
     def set_dynamic_super_properties(&block)
-      @dynamic_block = block
+      @mutex.synchronize do
+        @dynamic_block = block
+      end
     end
 
     ##
     # Clear dynamic super properties
     def clear_dynamic_super_properties
-      @dynamic_block = nil
+      @mutex.synchronize do
+        @dynamic_block = nil
+      end
     end
 
     ##
@@ -348,6 +357,7 @@ module ThinkingData
     def close
       return true unless defined? @consumer.close
       ret = true
+      # Consumer 自身已有锁保护，无需在此加锁
       begin
         @consumer.close
       rescue TDAnalyticsError => e
@@ -363,9 +373,14 @@ module ThinkingData
     private
 
     def _internal_track(type, properties: {}, event_name: nil, event_id:nil, account_id: nil, distinct_id: nil, ip: nil,first_check_id: nil, time: nil)
+      ret = true
+
+      # 只在访问共享状态时加锁
       if type == :track || type == :track_update || type == :track_overwrite
-        dynamic_properties = @dynamic_block.respond_to?(:call) ? @dynamic_block.call : {}
-        properties = LIB_PROPERTIES.merge(@super_properties).merge(dynamic_properties).merge(properties)
+        @mutex.synchronize do
+          dynamic_properties = @dynamic_block.respond_to?(:call) ? @dynamic_block.call : {}
+          properties = LIB_PROPERTIES.merge(@super_properties).merge(dynamic_properties).merge(properties)
+        end
       end
 
       data = {
@@ -396,7 +411,6 @@ module ThinkingData
       data['#first_check_id'] = first_check_id if first_check_id
       data[:'#uuid'] = SecureRandom.uuid if @uuid_enable and data[:'#uuid'] == nil
 
-      ret = true
       begin
         @consumer.add(data)
       rescue TDAnalyticsError => e

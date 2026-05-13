@@ -42,23 +42,33 @@ module ThinkingData
       @current_suffix = Time.now.strftime(@suffix_mode)
       @log_path = log_path
       @full_prefix = "#{log_path}/#{prefix}"
+      @mutex = Mutex.new
       TDLog.info("TDLoggerConsumer init success. LogPath: #{log_path}")
       _reset
     end
 
     def add(msg)
-      unless Time.now.strftime(@suffix_mode) == @current_suffix
-        @logger.close
-        @current_suffix = Time.now.strftime(@suffix_mode)
-        _reset
+      @mutex.synchronize do
+        unless Time.now.strftime(@suffix_mode) == @current_suffix
+          @logger.close
+          @current_suffix = Time.now.strftime(@suffix_mode)
+          _reset
+        end
+        msg_json_str = msg.to_json
+        TDLog.info("Write data to file: #{msg_json_str}")
+        @logger.info(msg_json_str)
       end
-      msg_json_str = msg.to_json
-      TDLog.info("Write data to file: #{msg_json_str}")
-      @logger.info(msg_json_str)
     end
   
+    def flush
+      # Logger writes immediately on each call, no explicit flush needed
+      TDLog.info("TDLoggerConsumer flush.")
+    end
+
     def close
-      @logger.close
+      @mutex.synchronize do
+        @logger.close
+      end
       TDLog.info("TDLoggerConsumer close.")
     end
 
