@@ -21,6 +21,7 @@ module ThinkingData
       @max_length = [max_buffer_length, MAX_LENGTH].min
       @buffers = []
       @mutex = Mutex.new
+      @owner_pid = Process.pid
       TDLog.info("TDBatchConsumer init success. ServerUrl: #{server_url}, appId: #{app_id}")
     end
 
@@ -42,6 +43,7 @@ module ThinkingData
     def add(message)
       TDLog.info("Enqueue data to buffer. buffer size: #{@buffers.length}, data: #{message}")
       need_flush = false
+      _reset_after_fork_if_needed
       @mutex.synchronize do
         @buffers << message
         need_flush = @buffers.length >= @max_length
@@ -50,11 +52,13 @@ module ThinkingData
     end
 
     def close
+      _reset_after_fork_if_needed
       flush
       TDLog.info("TDBatchConsumer close.")
     end
 
     def flush
+      _reset_after_fork_if_needed
       TDLog.info("TDBatchConsumer flush data.")
       data_to_send = nil
       @mutex.synchronize do
@@ -64,8 +68,9 @@ module ThinkingData
 
       return if data_to_send.empty?
 
-      begin
-        data_to_send.each_slice(@max_length) do |chunk|
+      chunks = data_to_send.each_slice(@max_length).to_a
+      chunks.each_with_index do |chunk, idx|
+        begin
           if @compress
             wio = StringIO.new("w")
             gzip_io = Zlib::GzipWriter.new(wio)
@@ -81,7 +86,7 @@ module ThinkingData
                      'compress' => compress_type,
                      'TE-Integration-Type'=>'Ruby',
                      'TE-Integration-Version'=>ThinkingData::VERSION,
-                     'TE-Integration-Count'=>data_to_send.count,
+                     'TE-Integration-Count'=>chunk.count,
                      'TA_Integration-Extra'=>'batch'}
           request = CaseSensitivePost.new(@server_uri.request_uri, headers)
           request.body = data
@@ -106,13 +111,25 @@ module ThinkingData
           if result['code'] != 0
             raise ServerError.new("Could not write to TE, server responded with #{response_code} returning: '#{response_body}'")
           end
+        rescue => e
+          # Re-enqueue the failed chunk AND every not-yet-sent chunk to the back,
+          # so that raising here never drops data still pending in this flush.
+          # New data already in @buffers stays ahead, failed data retries next flush.
+          remaining = chunks[idx..-1].flatten(1)
+          @mutex.synchronize { @buffers = @buffers + remaining }
+          raise e
         end
-      rescue
-        raise
       end
     end
 
     private
+    def _reset_after_fork_if_needed
+      return if @owner_pid == Process.pid
+      @owner_pid = Process.pid
+      @mutex = Mutex.new
+      @buffers = []
+    end
+
     def _request(uri, request)
       client = Net::HTTP.new(uri.host, uri.port)
       client.use_ssl = uri.scheme === 'https' ? true : false

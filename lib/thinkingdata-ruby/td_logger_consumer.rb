@@ -1,4 +1,5 @@
 require 'logger'
+require 'fileutils'
 require 'thinkingdata-ruby/td_errors'
 
 module ThinkingData
@@ -43,11 +44,13 @@ module ThinkingData
       @log_path = log_path
       @full_prefix = "#{log_path}/#{prefix}"
       @mutex = Mutex.new
+      @owner_pid = Process.pid
       TDLog.info("TDLoggerConsumer init success. LogPath: #{log_path}")
       _reset
     end
 
     def add(msg)
+      _reset_after_fork_if_needed
       @mutex.synchronize do
         unless Time.now.strftime(@suffix_mode) == @current_suffix
           @logger.close
@@ -66,6 +69,7 @@ module ThinkingData
     end
 
     def close
+      _reset_after_fork_if_needed
       @mutex.synchronize do
         @logger.close
       end
@@ -75,12 +79,20 @@ module ThinkingData
     private
 
     def _reset
-      Dir::mkdir(@log_path) unless Dir::exist?(@log_path)
+      FileUtils.mkdir_p(@log_path)
       @logger = HeadlessLogger.new("#{@full_prefix}.#{@current_suffix}")
       @logger.level = HeadlessLogger::INFO
       @logger.formatter = proc do |severity, datetime, progname, msg|
         "#{msg}\n"
       end
+    end
+
+    def _reset_after_fork_if_needed
+      return if @owner_pid == Process.pid
+      @owner_pid = Process.pid
+      @mutex = Mutex.new
+      @logger = nil  # Don't close — FD is shared with parent
+      _reset
     end
 
   end

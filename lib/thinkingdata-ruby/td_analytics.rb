@@ -48,9 +48,7 @@ module ThinkingData
     LIB_PROPERTIES = {
       '#lib' => 'ruby',
       '#lib_version' => ThinkingData::VERSION,
-    }
-
-    @dynamic_block = nil
+    }.freeze
 
     ##
     # Init function
@@ -60,7 +58,7 @@ module ThinkingData
     def initialize(consumer, error_handler = nil, uuid: false)
       @error_handler = error_handler || TDErrorHandler.new
       @consumer = consumer
-      @super_properties = {}
+      @super_properties = {}.freeze
       @uuid_enable = uuid
       @mutex = Mutex.new
       TDLog.info("SDK init success.")
@@ -74,13 +72,11 @@ module ThinkingData
           @error_handler.handle(IllegalParameterError.new("Invalid super properties"))
           return false
         end
+        formatted = {}
         properties.each do |k, v|
-          if v.is_a?(Time)
-            @super_properties[k] = _format_time(v)
-          else
-            @super_properties[k] = v
-          end
+          formatted[k] = v.is_a?(Time) ? _format_time(v) : v
         end
+        @super_properties = @super_properties.merge(formatted).freeze
       end
     end
 
@@ -88,7 +84,7 @@ module ThinkingData
     # Clear super properties
     def clear_super_properties
       @mutex.synchronize do
-        @super_properties = {}
+        @super_properties = {}.freeze
       end
     end
 
@@ -341,7 +337,7 @@ module ThinkingData
     # Report data immediately
     def flush
       TDLog.info("SDK flush data.")
-      return true unless defined? @consumer.flush
+      return true unless @consumer.respond_to?(:flush)
       ret = true
       begin
         @consumer.flush
@@ -355,7 +351,7 @@ module ThinkingData
     ##
     # Close and exit sdk
     def close
-      return true unless defined? @consumer.close
+      return true unless @consumer.respond_to?(:close)
       ret = true
       # Consumer 自身已有锁保护，无需在此加锁
       begin
@@ -375,12 +371,17 @@ module ThinkingData
     def _internal_track(type, properties: {}, event_name: nil, event_id:nil, account_id: nil, distinct_id: nil, ip: nil,first_check_id: nil, time: nil)
       ret = true
 
-      # 只在访问共享状态时加锁
+      # Snapshot @dynamic_block under the mutex for memory visibility;
+      # @super_properties is a frozen hash replaced atomically — safe lock-free read.
+      # The dynamic block is called OUTSIDE the mutex to prevent deadlocks
+      # (if the block calls back into TDAnalytics) and throughput collapse.
       if type == :track || type == :track_update || type == :track_overwrite
-        @mutex.synchronize do
-          dynamic_properties = @dynamic_block.respond_to?(:call) ? @dynamic_block.call : {}
-          properties = LIB_PROPERTIES.merge(@super_properties).merge(dynamic_properties).merge(properties)
-        end
+        block = @mutex.synchronize { @dynamic_block }
+        dynamic_properties = block.respond_to?(:call) ? block.call : {}
+        properties = LIB_PROPERTIES.merge(@super_properties).merge(dynamic_properties).merge(properties)
+      else
+        # user_* methods: dup to avoid mutating the caller's hash
+        properties = properties.dup
       end
 
       data = {
@@ -390,6 +391,8 @@ module ThinkingData
       properties.each do |k, v|
         if v.is_a?(Time)
           properties[k] = _format_time(v)
+        elsif v.is_a?(Array)
+          properties[k] = v.map { |e| e.is_a?(Time) ? _format_time(e) : e }
         end
       end
 
@@ -465,13 +468,6 @@ module ThinkingData
 
         if type == :user_add
           raise IllegalParameterError.new("Property value for user add must be numbers") unless v.is_a?(Integer) || v.is_a?(Float)
-        end
-        if v.is_a?(Array)
-          v.each_index do |i|
-            if v[i].is_a?(Time)
-              v[i] = _format_time(v[i])
-            end
-          end
         end
       end
       true
